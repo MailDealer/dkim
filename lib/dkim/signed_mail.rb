@@ -14,15 +14,12 @@ module Dkim
     #
     # @param [String,#to_s] message mail message to be signed
     # @param [Hash] options hash of options for signing. Defaults are taken from {Dkim}. See {Options} for details.
-    def initialize message, options={}
+    def initialize message
       message = message.to_s.gsub(/\r?\n/, "\r\n")
       headers, body = message.split(/\r?\n\r?\n/, 2)
       @original_message = message
       @headers = Header.parse headers
       @body    = Body.new body
-
-      # default options from Dkim.options
-      @options = Dkim.options.merge(options)
     end
 
     def canonicalized_headers
@@ -31,28 +28,28 @@ module Dkim
 
     # @return [Array<String>] lowercased names of headers in the order they are signed
     def signed_headers
-      @headers.map(&:relaxed_key).select do |key|
-        signable_headers.map(&:downcase).include?(key)
-      end
+      @signed_headers ||= signable_headers
     end
 
     # @return [String] Signed headers of message in their canonical forms
     def canonical_header
-      canonicalized_headers.to_s(header_canonicalization)
+      @canonical_header ||= canonicalized_headers.to_s(header_canonicalization)
     end
 
     # @return [String] Body of message in its canonical form
     def canonical_body
-      @body.to_s(body_canonicalization)
+      @canonical_body ||= @body.to_s(body_canonicalization)
     end
 
     # @return [DkimHeader] Constructed signature for the mail message
-    def dkim_header
-      dkim_header = DkimHeader.new
+    def dkim_header(options)
+      @options = Dkim.options.merge(options)
 
       raise "A private key is required" unless private_key
       raise "A domain is required"      unless domain
       raise "A selector is required"    unless selector
+
+      dkim_header = DkimHeader.new
 
       # Add basic DKIM info
       dkim_header['v'] = '1'
