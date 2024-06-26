@@ -14,16 +14,12 @@ module Dkim
     #
     # @param [String,#to_s] message mail message to be signed
     # @param [Hash] options hash of options for signing. Defaults are taken from {Dkim}. See {Options} for details.
-    def initialize message
+    def initialize(message)
       message = message.to_s.gsub(/\r?\n/, "\r\n")
       headers, body = message.split(/\r?\n\r?\n/, 2)
       @original_message = message
       @headers = Header.parse headers
       @body    = Body.new body
-    end
-
-    def canonicalized_headers
-      CanonicalizedHeaders.new(@headers, signed_headers)
     end
 
     # @return [Array<String>] lowercased names of headers in the order they are signed
@@ -33,12 +29,16 @@ module Dkim
 
     # @return [String] Signed headers of message in their canonical forms
     def canonical_header
-      @canonical_header ||= canonicalized_headers.to_s(header_canonicalization)
+      @canonical_header ||= CanonicalizedHeaders.new(@headers, signed_headers).to_s(header_canonicalization)
     end
 
     # @return [String] Body of message in its canonical form
     def canonical_body
       @canonical_body ||= @body.to_s(body_canonicalization)
+    end
+
+    def body_hash
+      @body_hash ||= digest_alg.digest(canonical_body)
     end
 
     # @return [DkimHeader] Constructed signature for the mail message
@@ -63,15 +63,14 @@ module Dkim
       dkim_header['x'] = expire.to_i if expire
 
       # Add body hash and blank signature
-      dkim_header['bh']= digest_alg.digest(canonical_body)
+      dkim_header['bh']= body_hash
       dkim_header['h'] = signed_headers.join(':')
       dkim_header['b'] = ''
 
       # Calculate signature based on intermediate signature header
-      headers = canonical_header
-      headers << dkim_header.to_s(header_canonicalization)
-      dkim_header['b'] = private_key.sign(digest_alg, headers)
-
+      headers_for_sign = canonical_header.dup
+      headers_for_sign << dkim_header.to_s(header_canonicalization)
+      dkim_header['b'] = private_key.sign(digest_alg, headers_for_sign)
       dkim_header
     end
 
@@ -93,4 +92,3 @@ module Dkim
     end
   end
 end
-
